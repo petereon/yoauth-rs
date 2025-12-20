@@ -92,12 +92,46 @@ jobs:
             strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
           fi
 
-      - name: Upload release artifact
-        uses: actions/upload-release-asset@v1
+      - name: Create package directory
+        shell: bash
+        run: |
+          pkg_name="${{ matrix.asset_name }}"
+          mkdir -p "package/$pkg_name"
+          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} "package/$pkg_name/"
+          cp README.md "package/$pkg_name/"
+          cp LICENSE "package/$pkg_name/"
+
+      - name: Create tarball (Linux and macOS)
+        if: matrix.os != 'windows-latest'
+        working-directory: package
+        run: tar czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.asset_name }}
+
+      - name: Create zip (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: package
+        shell: bash
+        run: 7z a -tzip ${{ matrix.asset_name }}.zip ${{ matrix.asset_name }}
+
+      - name: Generate checksum
+        shell: bash
+        working-directory: package
+        run: |
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            certutil -hashfile ${{ matrix.asset_name }}.zip SHA256 | findstr /v "hash" | findstr /v "CertUtil" > ${{ matrix.asset_name }}.zip.sha256
+          else
+            shasum -a 256 ${{ matrix.asset_name }}.tar.gz > ${{ matrix.asset_name }}.tar.gz.sha256
+          fi
+
+      - name: Upload release assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
-          asset_name: ${{ matrix.asset_name }}
-          asset_content_type: application/octet-stream
+        shell: bash
+        working-directory: package
+        run: |
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            gh release upload ${{ github.event.release.tag_name }} ${{ matrix.asset_name }}.zip --clobber
+            gh release upload ${{ github.event.release.tag_name }} ${{ matrix.asset_name }}.zip.sha256 --clobber
+          else
+            gh release upload ${{ github.event.release.tag_name }} ${{ matrix.asset_name }}.tar.gz --clobber
+            gh release upload ${{ github.event.release.tag_name }} ${{ matrix.asset_name }}.tar.gz.sha256 --clobber
+          fi
