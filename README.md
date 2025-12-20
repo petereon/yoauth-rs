@@ -15,9 +15,15 @@ Getting a token has never been easier. Rust port of [YOAuth](https://github.com/
 
 ### As a CLI Tool
 
+Download the pre-built binary from the [releases](https://github.com/petereon/yoauth-rs/releases/latest)
+
+Or build from source:
+
 ```bash
 cargo install --git https://github.com/petereon/yoauth.git
 ```
+
+
 
 ### As a Library
 
