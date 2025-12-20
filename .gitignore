@@ -1,0 +1,19 @@
+/target
+Cargo.lock
+
+# Config files with secrets
+yoauth.toml
+
+# Certificate files
+*.pem
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.env

@@ -1,0 +1,64 @@
+# YOAuth Configuration File Example
+# Copy this file to yoauth.toml and fill in your OAuth2 provider details
+
+# OAuth2 authorization endpoint
+# Example for Google: https://accounts.google.com/o/oauth2/v2/auth
+authorization_url = "https://accounts.google.com/o/oauth2/v2/auth"
+
+# OAuth2 token endpoint
+# Example for Google: https://oauth2.googleapis.com/token
+token_url = "https://oauth2.googleapis.com/token"
+
+# Your OAuth2 client ID
+client_id = "your_client_id_here"
+
+# Your OAuth2 client secret
+# WARNING: Keep this file secure! Do not commit it to version control.
+client_secret = "your_client_secret_here"
+
+# OAuth2 scopes (optional)
+# Example for Google: ["https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"]
+scopes = [
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile"
+]
+
+# Disable TLS (NOT RECOMMENDED - tokens will be sent in plain text)
+# Default: false
+# disable_tls = false
+
+# Path to custom certificate file (optional)
+# If not provided, a self-signed certificate will be auto-generated
+# cert_file = "path/to/cert.pem"
+
+# Path to custom private key file (optional)
+# Required if cert_file is provided
+# key_file = "path/to/key.pem"
+
+# ============================================================================
+# Common OAuth2 Provider Examples
+# ============================================================================
+
+# Google OAuth2
+# -------------
+# authorization_url = "https://accounts.google.com/o/oauth2/v2/auth"
+# token_url = "https://oauth2.googleapis.com/token"
+# scopes = ["https://www.googleapis.com/auth/userinfo.email"]
+
+# GitHub OAuth2
+# -------------
+# authorization_url = "https://github.com/login/oauth/authorize"
+# token_url = "https://github.com/login/oauth/access_token"
+# scopes = ["user", "repo"]
+
+# Microsoft OAuth2
+# ----------------
+# authorization_url = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+# token_url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+# scopes = ["openid", "profile", "email"]
+
+# GitLab OAuth2
+# -------------
+# authorization_url = "https://gitlab.com/oauth/authorize"
+# token_url = "https://gitlab.com/oauth/token"
+# scopes = ["read_user", "api"]
