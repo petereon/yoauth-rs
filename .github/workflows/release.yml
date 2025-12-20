@@ -101,29 +101,3 @@ jobs:
           asset_path: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
           asset_name: ${{ matrix.asset_name }}
           asset_content_type: application/octet-stream
-
-  checksums:
-    name: Generate checksums
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Generate checksums
-        run: |
-          cd artifacts
-          sha256sum * > SHA256SUMS
-
-      - name: Upload checksums
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: artifacts/SHA256SUMS
-          asset_name: SHA256SUMS
-          asset_content_type: text/plain
