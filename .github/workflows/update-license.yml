@@ -14,11 +14,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - uses: FantasticFiasco/action-update-license-year@v3
+      - name: Update LICENSE year
+        run: |
+          CURRENT_YEAR=$(date +%Y)
+          LAST_YEAR=$((CURRENT_YEAR - 1))
+
+          # Check if there's a year range that needs updating
+          if grep -q "Copyright (c) [0-9]\+-$LAST_YEAR" LICENSE; then
+            # Update existing range: 2025-2025 -> 2025-2026
+            sed -i "s/Copyright (c) \([0-9]\+\)-$LAST_YEAR/Copyright (c) \1-$CURRENT_YEAR/" LICENSE
+            echo "Updated LICENSE year range to end with $CURRENT_YEAR"
+            echo "updated=true" >> $GITHUB_OUTPUT
+          elif grep -q "Copyright (c) [0-9]\+ " LICENSE; then
+            # Convert single year to range: 2025 -> 2025-2026
+            sed -i "s/Copyright (c) \([0-9]\+\) /Copyright (c) \1-$CURRENT_YEAR /" LICENSE
+            echo "Converted LICENSE to year range ending with $CURRENT_YEAR"
+            echo "updated=true" >> $GITHUB_OUTPUT
+          else
+            echo "LICENSE already up-to-date"
+            echo "updated=false" >> $GITHUB_OUTPUT
+          fi
+        id: update
+
+      - name: Create Pull Request
+        if: steps.update.outputs.updated == 'true'
+        uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          # path: "LICENSE"         # default; adjust if needed
-          # transform: "<custom-regex>"  # only if license format is nonstandard
+          commit-message: "chore: update LICENSE year to ${{ steps.update.outputs.year }}"
+          title: "Update LICENSE copyright year"
+          body: |
+            Automated update of copyright year in LICENSE file.
+
+            This PR was automatically created by the scheduled workflow.
+          branch: license/update-${{ github.run_number }}
+          delete-branch: true
