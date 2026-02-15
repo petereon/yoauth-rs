@@ -169,7 +169,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #### Disabling TLS (not recommended)
 
-> ⚠️ If you really REALLY trust your network you can disable TLS, but be aware that **tokens** providing access to your potentially expensive cloud resources or sensitive data **will be sent around in plain-text**. This software is distributed under MIT license. The author will not be held responsible for any damages caused by your negligence.
+> [!WARN]
+> If you really REALLY trust your network you can disable TLS, but be aware that **tokens** providing access to your potentially expensive cloud resources or sensitive data **will be sent around in plain-text**. This software is distributed under MIT license. The author will not be held responsible for any damages caused by your negligence.
 
 ```rust
 use yoauth::{get_oauth_token, OAuthConfig};
