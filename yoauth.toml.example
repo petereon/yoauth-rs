@@ -27,6 +27,15 @@ scopes = [
 # Default: false
 # disable_tls = false
 
+# PKCE challenge method: "S256", "plain", or "none"
+# If omitted, the method is auto-detected via the provider's OIDC discovery
+# document and falls back to "plain" when discovery is unavailable.
+# challenge_method = "S256"
+
+# Path to an HTML file displayed in the browser after successful authorization
+# If not provided, the built-in success page is used.
+# success_html_file = "success.html"
+
 # Path to custom certificate file (optional)
 # If not provided, a self-signed certificate will be auto-generated
 # cert_file = "path/to/cert.pem"
