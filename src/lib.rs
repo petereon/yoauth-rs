@@ -1,6 +1,9 @@
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use rand::RngCore;
 use rcgen::generate_simple_self_signed;
 use rustls::pki_types::CertificateDer;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Once};
@@ -8,6 +11,43 @@ use tiny_http::{Response, Server};
 use url::Url;
 
 static INIT_CRYPTO: Once = Once::new();
+
+const DEFAULT_SUCCESS_HTML: &str = "<!DOCTYPE html><html><head><title>Authorized</title></head><body><h1>\u{2713} Authorized</h1><p>You can close this window now.</p><script>window.close();</script></body></html>";
+
+// ---------------------------------------------------------------------------
+// PKCE helpers
+// ---------------------------------------------------------------------------
+
+/// Generate a cryptographically random code verifier (43-128 chars, URL-safe base64).
+pub fn generate_pkce_verifier() -> String {
+    let mut verifier_bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut verifier_bytes);
+    URL_SAFE_NO_PAD.encode(verifier_bytes)
+}
+
+/// Derive the S256 code challenge from a code verifier.
+pub fn generate_pkce_challenge(verifier: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(verifier.as_bytes());
+    URL_SAFE_NO_PAD.encode(hasher.finalize())
+}
+
+/// Minimal OpenID Connect discovery document fields relevant to PKCE.
+#[derive(Deserialize)]
+struct DiscoveryMetadata {
+    code_challenge_methods_supported: Option<Vec<String>>,
+}
+
+/// Attempt to fetch the OIDC discovery document for the server hosting
+/// `authorization_url`.  Returns `None` if the endpoint is unreachable or
+/// returns a non-200 response.
+fn fetch_discovery_metadata(authorization_url: &str) -> Option<DiscoveryMetadata> {
+    let base = Url::parse(authorization_url).ok()?;
+    let origin = format!("{}://{}", base.scheme(), base.host_str()?);
+    let discovery_url = format!("{}/.well-known/openid-configuration", origin);
+    let response = ureq::get(&discovery_url).call().ok()?;
+    response.into_json::<DiscoveryMetadata>().ok()
+}
 
 /// Initialize the rustls crypto provider
 fn init_crypto_provider() {
@@ -114,6 +154,17 @@ pub struct OAuthConfig {
     pub require_tls: bool,
     pub ssl_certs: Option<SslCerts>,
     pub verbose: bool,
+    /// PKCE challenge method to use.
+    ///
+    /// - `None`          – auto-detect via OIDC discovery; fall back to `"plain"`.
+    /// - `Some("S256")`  – always use SHA-256.
+    /// - `Some("plain")` – always use plain-text verifier.
+    /// - `Some("none")`  – disable PKCE entirely.
+    pub pkce_method: Option<String>,
+    /// Custom HTML page shown to the user after a successful authorization.
+    ///
+    /// When `None` the built-in default page is used.
+    pub success_html: Option<String>,
 }
 
 impl OAuthConfig {
@@ -132,6 +183,8 @@ impl OAuthConfig {
             require_tls: true,
             ssl_certs: None,
             verbose: false,
+            pkce_method: None,
+            success_html: None,
         }
     }
 
@@ -154,6 +207,20 @@ impl OAuthConfig {
         self.verbose = verbose;
         self
     }
+
+    /// Set the PKCE challenge method.
+    ///
+    /// Pass `None` for auto-detection, or `Some("S256" | "plain" | "none")`.
+    pub fn with_pkce_method(mut self, method: Option<String>) -> Self {
+        self.pkce_method = method;
+        self
+    }
+
+    /// Set a custom HTML string to display after successful authorization.
+    pub fn with_success_html(mut self, html: Option<String>) -> Self {
+        self.success_html = html;
+        self
+    }
 }
 
 pub fn get_oauth_token(config: OAuthConfig) -> Result<TokenResponse, OAuthError> {
@@ -166,14 +233,56 @@ pub fn get_oauth_token(config: OAuthConfig) -> Result<TokenResponse, OAuthError>
     let protocol = if config.require_tls { "https" } else { "http" };
     let redirect_uri = format!("{}://localhost:{}", protocol, port);
 
+    // Determine PKCE method
+    let effective_pkce_method: String = match config.pkce_method.as_deref() {
+        Some(m) => m.to_string(),
+        None => {
+            // Auto-detect via OIDC discovery, fall back to "plain"
+            if let Some(metadata) = fetch_discovery_metadata(&config.authorization_url) {
+                if metadata
+                    .code_challenge_methods_supported
+                    .as_deref()
+                    .unwrap_or(&[])
+                    .iter()
+                    .any(|m| m == "S256")
+                {
+                    "S256".to_string()
+                } else {
+                    "plain".to_string()
+                }
+            } else {
+                "plain".to_string()
+            }
+        }
+    };
+
+    if config.verbose {
+        eprintln!("PKCE method: {}", effective_pkce_method);
+    }
+
+    // Generate PKCE verifier / challenge
+    let code_verifier = generate_pkce_verifier();
+    let code_challenge = if effective_pkce_method == "S256" {
+        generate_pkce_challenge(&code_verifier)
+    } else {
+        // "plain" challenge == verifier itself
+        code_verifier.clone()
+    };
+
     // Build authorization URL
     let mut auth_url = Url::parse(&config.authorization_url)?;
-    auth_url
-        .query_pairs_mut()
-        .append_pair("client_id", &config.client_id)
-        .append_pair("redirect_uri", &redirect_uri)
-        .append_pair("response_type", "code")
-        .append_pair("scope", &config.scopes.join(","));
+    {
+        let mut qp = auth_url.query_pairs_mut();
+        qp.append_pair("client_id", &config.client_id)
+            .append_pair("redirect_uri", &redirect_uri)
+            .append_pair("response_type", "code")
+            .append_pair("scope", &config.scopes.join(","));
+
+        if effective_pkce_method != "none" {
+            qp.append_pair("code_challenge", &code_challenge)
+                .append_pair("code_challenge_method", &effective_pkce_method);
+        }
+    }
 
     // Open browser
     if config.verbose {
@@ -191,19 +300,28 @@ pub fn get_oauth_token(config: OAuthConfig) -> Result<TokenResponse, OAuthError>
             None => SslCerts::generate()?,
         };
 
-        start_https_server(listener, ssl_certs, config.verbose)?
+        let success_html = config.success_html.as_deref().unwrap_or(DEFAULT_SUCCESS_HTML);
+        start_https_server(listener, ssl_certs, config.verbose, success_html)?
     } else {
-        start_http_server(listener)?
+        let success_html = config.success_html.as_deref().unwrap_or(DEFAULT_SUCCESS_HTML);
+        start_http_server(listener, success_html)?
     };
 
     // Exchange authorization code for token
-    let token_request = serde_json::json!({
+    let mut token_request = serde_json::json!({
         "client_id": config.client_id,
         "client_secret": config.client_secret,
         "code": authorization_code,
         "grant_type": "authorization_code",
         "redirect_uri": redirect_uri,
     });
+
+    if effective_pkce_method != "none" {
+        token_request
+            .as_object_mut()
+            .unwrap()
+            .insert("code_verifier".to_string(), serde_json::Value::String(code_verifier));
+    }
 
     let response = ureq::post(&config.token_url)
         .send_json(&token_request)
@@ -213,15 +331,14 @@ pub fn get_oauth_token(config: OAuthConfig) -> Result<TokenResponse, OAuthError>
     Ok(token)
 }
 
-fn start_http_server(listener: TcpListener) -> Result<String, OAuthError> {
+fn start_http_server(listener: TcpListener, success_html: &str) -> Result<String, OAuthError> {
     let server = Server::from_listener(listener, None)
         .map_err(|e| OAuthError::HttpError(e.to_string()))?;
 
     for request in server.incoming_requests() {
         let url = request.url();
         if let Some(code) = extract_code_from_url(url) {
-            let html = "<!DOCTYPE html><html><head><title>Authorized</title></head><body><h1>✓ Authorized</h1><p>You can close this window now.</p><script>window.close();</script></body></html>";
-            let response = Response::from_string(html).with_header(
+            let response = Response::from_string(success_html).with_header(
                 tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..]).unwrap()
             );
             let _ = request.respond(response);
@@ -237,7 +354,7 @@ fn start_http_server(listener: TcpListener) -> Result<String, OAuthError> {
     ))
 }
 
-fn start_https_server(listener: TcpListener, ssl_certs: SslCerts, verbose: bool) -> Result<String, OAuthError> {
+fn start_https_server(listener: TcpListener, ssl_certs: SslCerts, verbose: bool, success_html: &str) -> Result<String, OAuthError> {
     // Parse certificates
     let certs: Vec<CertificateDer> = rustls_pemfile::certs(&mut ssl_certs.cert_pem.as_slice())
         .collect::<Result<Vec<_>, _>>()
@@ -335,8 +452,7 @@ fn start_https_server(listener: TcpListener, ssl_certs: SslCerts, verbose: bool)
                 let path = parts[1];
 
                 if let Some(code) = extract_code_from_url(path) {
-                    let html = "<!DOCTYPE html><html><head><title>Authorized</title></head><body><h1>✓ Authorized</h1><p>You can close this window now.</p><script>window.close();</script></body></html>";
-                    let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}", html.len(), html);
+                    let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}", success_html.len(), success_html);
                     let _ = tls_reader.write_all(response.as_bytes());
                     let _ = tls_reader.flush();
                     return Ok(code);

@@ -69,6 +69,19 @@ struct Args {
     #[arg(long)]
     token_only: bool,
 
+    /// PKCE challenge method to use for the authorization request
+    ///
+    /// If omitted, the method is auto-detected via OIDC discovery and falls
+    /// back to "plain" when discovery is unavailable.
+    #[arg(long, env = "YOAUTH_CHALLENGE_METHOD")]
+    challenge_method: Option<ChallengeMethod>,
+
+    /// Path to an HTML file to display after successful authorization
+    ///
+    /// If not provided, the built-in success page is used.
+    #[arg(long, env = "YOAUTH_SUCCESS_HTML_FILE")]
+    success_html_file: Option<PathBuf>,
+
     /// Enable verbose output
     #[arg(short = 'v', long, env = "YOAUTH_VERBOSE")]
     verbose: bool,
@@ -84,6 +97,27 @@ enum OutputFormat {
     Pretty,
 }
 
+/// PKCE challenge method exposed at the CLI.
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum ChallengeMethod {
+    /// SHA-256 hashed challenge (recommended)
+    S256,
+    /// Plain-text verifier used as challenge
+    Plain,
+    /// Disable PKCE entirely
+    None,
+}
+
+impl ChallengeMethod {
+    fn as_str(&self) -> &'static str {
+        match self {
+            ChallengeMethod::S256 => "S256",
+            ChallengeMethod::Plain => "plain",
+            ChallengeMethod::None => "none",
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Default)]
 struct ConfigFile {
     authorization_url: Option<String>,
@@ -94,6 +128,10 @@ struct ConfigFile {
     disable_tls: Option<bool>,
     cert_file: Option<PathBuf>,
     key_file: Option<PathBuf>,
+    /// PKCE challenge method: "S256", "plain", or "none".
+    challenge_method: Option<String>,
+    /// Path to an HTML file to display after successful authorization.
+    success_html_file: Option<PathBuf>,
 }
 
 impl ConfigFile {
@@ -148,6 +186,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let require_tls = !args.disable_tls && !config_file.disable_tls.unwrap_or(false);
 
+    // Resolve PKCE challenge method: CLI > env > config file > auto-detect (None)
+    let pkce_method: Option<String> = args
+        .challenge_method
+        .as_ref()
+        .map(|m| m.as_str().to_string())
+        .or(config_file.challenge_method);
+
+    // Load custom success HTML if provided
+    let success_html_path = args.success_html_file.or(config_file.success_html_file);
+    let success_html: Option<String> = if let Some(path) = success_html_path {
+        Some(
+            std::fs::read_to_string(&path)
+                .map_err(|e| format!("Failed to read success HTML file '{}': {}", path.display(), e))?
+        )
+    } else {
+        None
+    };
+
     // Build OAuth config
     let mut oauth_config = OAuthConfig::new(
         authorization_url,
@@ -157,7 +213,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_scopes(scopes)
     .with_tls(require_tls)
-    .with_verbose(args.verbose);
+    .with_verbose(args.verbose)
+    .with_pkce_method(pkce_method)
+    .with_success_html(success_html);
 
     // Handle certificates
     if require_tls {
