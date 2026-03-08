@@ -1,6 +1,6 @@
 # YOAuth 🔑
 
-Getting a token has never been easier. Rust port of [YOAuth](https://github.com/petereon/yoauth) using `tiny_http`, `rustls`, and `rcgen` for self-signed certificate generation. Now also as a CLI command for all your scripting needs 📜
+Getting a token has never been easier. Rust port of [YOAuth](https://github.com/petereon/yoauth) using `tiny_http`, `rustls`, and `rcgen` for self-signed certificate generation. Now also as a CLI command for all your scripting needs.
 
 ## Features ✨
 
