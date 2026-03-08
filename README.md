@@ -5,13 +5,13 @@ Getting a token has never been easier. Rust port of [YOAuth](https://github.com/
 ## Features ✨
 
 - OAuth2 authorization code flow
-- **PKCE support** (S256 / plain) with automatic discovery via `.well-known/openid-configuration`
-- Automatic certificate generation using `rcgen`
+- PKCE support (S256 / plain) with automatic discovery via `.well-known/openid-configuration`
 - TLS support via `rustls`
+- Automatic certificate generation using `rcgen`
 - Lightweight HTTP server using `tiny_http`
 - Automatic browser opening for authorization
 - Optional external certificate loading
-- **Custom success page** — bring your own HTML shown after authorization
+- Custom success page — bring your own HTML shown after authorization
 
 ## Installation 📦
 
