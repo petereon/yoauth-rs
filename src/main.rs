@@ -39,6 +39,12 @@ struct Args {
     #[arg(long, env = "YOAUTH_SCOPES", value_delimiter = ',')]
     scopes: Option<Vec<String>>,
 
+    /// OAuth2 scope (can be specified multiple times)
+    ///
+    /// Example: --scope email --scope profile
+    #[arg(long)]
+    scope: Option<Vec<String>>,
+
     /// Disable TLS/HTTPS (NOT RECOMMENDED - tokens sent in plain text)
     #[arg(long, env = "YOAUTH_DISABLE_TLS")]
     disable_tls: bool,
@@ -176,13 +182,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client_secret = args
         .client_secret
-        .or(config_file.client_secret)
-        .ok_or("Client secret is required (--client-secret, YOAUTH_CLIENT_SECRET, or config file)")?;
+        .or(config_file.client_secret);
 
-    let scopes = args
+    let mut scopes = args
         .scopes
         .or(config_file.scopes)
         .unwrap_or_default();
+
+    if let Some(extra) = args.scope {
+        scopes.extend(extra);
+    }
 
     let require_tls = !args.disable_tls && !config_file.disable_tls.unwrap_or(false);
 
@@ -209,13 +218,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         authorization_url,
         token_url,
         client_id,
-        client_secret,
     )
     .with_scopes(scopes)
     .with_tls(require_tls)
     .with_verbose(args.verbose)
     .with_pkce_method(pkce_method)
     .with_success_html(success_html);
+
+    if let Some(secret) = client_secret {
+        oauth_config = oauth_config.with_client_secret(secret);
+    }
 
     // Handle certificates
     if require_tls {

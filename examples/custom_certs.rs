@@ -41,8 +41,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "https://accounts.google.com/o/oauth2/v2/auth",
         "https://oauth2.googleapis.com/token",
         client_id,
-        client_secret,
     )
+    .with_client_secret(client_secret)
     .with_scopes(vec!["email".to_string()])
     // Certificates are auto-generated if not provided!
     // You could also explicitly provide them:

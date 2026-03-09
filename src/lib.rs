@@ -149,21 +149,14 @@ pub struct OAuthConfig {
     pub authorization_url: String,
     pub token_url: String,
     pub client_id: String,
-    pub client_secret: String,
+    pub client_secret: Option<String>,
     pub scopes: Vec<String>,
     pub require_tls: bool,
     pub ssl_certs: Option<SslCerts>,
     pub verbose: bool,
     /// PKCE challenge method to use.
     ///
-    /// - `None`          – auto-detect via OIDC discovery; fall back to `"plain"`.
-    /// - `Some("S256")`  – always use SHA-256.
-    /// - `Some("plain")` – always use plain-text verifier.
-    /// - `Some("none")`  – disable PKCE entirely.
     pub pkce_method: Option<String>,
-    /// Custom HTML page shown to the user after a successful authorization.
-    ///
-    /// When `None` the built-in default page is used.
     pub success_html: Option<String>,
 }
 
@@ -172,13 +165,12 @@ impl OAuthConfig {
         authorization_url: impl Into<String>,
         token_url: impl Into<String>,
         client_id: impl Into<String>,
-        client_secret: impl Into<String>,
     ) -> Self {
         Self {
             authorization_url: authorization_url.into(),
             token_url: token_url.into(),
             client_id: client_id.into(),
-            client_secret: client_secret.into(),
+            client_secret: None,
             scopes: Vec::new(),
             require_tls: true,
             ssl_certs: None,
@@ -186,6 +178,11 @@ impl OAuthConfig {
             pkce_method: None,
             success_html: None,
         }
+    }
+
+    pub fn with_client_secret(mut self, secret: impl Into<String>) -> Self {
+        self.client_secret = Some(secret.into());
+        self
     }
 
     pub fn with_scopes(mut self, scopes: Vec<String>) -> Self {
@@ -276,7 +273,7 @@ pub fn get_oauth_token(config: OAuthConfig) -> Result<TokenResponse, OAuthError>
         qp.append_pair("client_id", &config.client_id)
             .append_pair("redirect_uri", &redirect_uri)
             .append_pair("response_type", "code")
-            .append_pair("scope", &config.scopes.join(","));
+            .append_pair("scope", &config.scopes.join(" "));
 
         if effective_pkce_method != "none" {
             qp.append_pair("code_challenge", &code_challenge)
@@ -308,24 +305,35 @@ pub fn get_oauth_token(config: OAuthConfig) -> Result<TokenResponse, OAuthError>
     };
 
     // Exchange authorization code for token
-    let mut token_request = serde_json::json!({
-        "client_id": config.client_id,
-        "client_secret": config.client_secret,
-        "code": authorization_code,
-        "grant_type": "authorization_code",
-        "redirect_uri": redirect_uri,
-    });
+    let mut params = vec![
+        ("client_id", config.client_id.clone()),
+        ("code", authorization_code),
+        ("grant_type", "authorization_code".to_string()),
+        ("redirect_uri", redirect_uri),
+    ];
 
-    if effective_pkce_method != "none" {
-        token_request
-            .as_object_mut()
-            .unwrap()
-            .insert("code_verifier".to_string(), serde_json::Value::String(code_verifier));
+    if let Some(secret) = config.client_secret.as_ref() {
+        params.push(("client_secret", secret.clone()));
     }
 
+    if effective_pkce_method != "none" {
+        params.push(("code_verifier", code_verifier));
+    }
+
+    let params_ref: Vec<(&str, &str)> = params.iter().map(|(k, v)| (*k, v.as_str())).collect();
+
     let response = ureq::post(&config.token_url)
-        .send_json(&token_request)
-        .map_err(|e| OAuthError::RequestError(e.to_string()))?;
+        .send_form(&params_ref)
+        .map_err(|e| {
+            let msg = match e {
+                ureq::Error::Status(status, resp) => {
+                    let body = resp.into_string().unwrap_or_default();
+                    format!("{}: status code {} - {}", config.token_url, status, body)
+                }
+                other => format!("{}: {}", config.token_url, other),
+            };
+            OAuthError::RequestError(msg)
+        })?;
 
     let token: TokenResponse = response.into_json()?;
     Ok(token)
